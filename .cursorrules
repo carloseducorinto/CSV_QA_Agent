@@ -1,0 +1,60 @@
+project_name: csv_qa_agent
+language: python
+
+entry_points:
+  - app.py
+
+agents:
+  - name: CSVLoaderAgent
+    path: agents/csv_loader.py
+    description: "Lê arquivos .csv e .zip enviados pelo usuário e carrega em DataFrames com pandas."
+
+  - name: SchemaAnalyzerAgent
+    path: agents/schema_analyzer.py
+    description: "Analisa os DataFrames carregados, gera estatísticas e sugere relações entre arquivos."
+
+  - name: QuestionUnderstandingAgent
+    path: agents/question_understanding.py
+    description: "Interpreta perguntas em linguagem natural e gera código pandas para responder usando LangChain."
+
+  - name: QueryExecutorAgent
+    path: agents/query_executor.py
+    description: "Executa código pandas gerado dinamicamente e captura possíveis erros para fallback."
+
+  - name: AnswerFormatterAgent
+    path: agents/answer_formatter.py
+    description: "Formata a resposta para o usuário em linguagem natural com base no resultado da análise."
+
+context_rules:
+  - match: templates/prompts.py
+    provide_to: agents/question_understanding.py
+    reason: "Os prompts definidos são utilizados pelo agente de entendimento de perguntas."
+
+  - match: utils/*.py
+    provide_to: agents/*
+    reason: "Funções auxiliares de leitura de arquivos e manipulação de pandas são utilizadas por todos os agentes."
+
+  - match: data/*.csv
+    provide_to: agents/csv_loader.py
+    reason: "Arquivos CSV são a entrada principal tratada por esse agente."
+
+  - match: logs/*
+    provide_to: all
+    reason: "Logs podem ser referenciados para análise de execução."
+
+llm_usage:
+  - agent: QuestionUnderstandingAgent
+    purpose: "Geração de lógica analítica (em pandas) a partir da pergunta do usuário."
+
+  - agent: AnswerFormatterAgent
+    purpose: "Conversão do resultado técnico em explicação clara para o usuário."
+
+frameworks:
+  - name: streamlit
+    path: app.py
+    purpose: "Interface para upload de arquivos e envio de perguntas."
+
+  - name: langchain
+    path: agents/question_understanding.py
+    purpose: "Cadeia de raciocínio para interpretar perguntas e montar código executável."
+

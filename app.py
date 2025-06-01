@@ -14,6 +14,9 @@ sys.path.append(str(project_root))
 
 # Import our agents
 from agents.csv_loader import CSVLoaderAgent
+from agents.question_understanding import QuestionUnderstandingAgent
+from agents.query_executor import QueryExecutorAgent
+from agents.answer_formatter import AnswerFormatterAgent
 
 def analyze_uploaded_files(uploaded_files):
     """Analyze uploaded files using CSVLoaderAgent"""
@@ -282,9 +285,78 @@ def display_file_analysis(filename, result):
             else:
                 st.info("Upload multiple files to detect relationships between datasets.")
 
+def answer_question(question: str, analysis_results: dict) -> dict:
+    """Complete question-answering pipeline using all enhanced agents"""
+    try:
+        # Initialize all agents
+        question_agent = QuestionUnderstandingAgent()
+        executor_agent = QueryExecutorAgent()
+        formatter_agent = AnswerFormatterAgent()
+        
+        # Extract DataFrames from analysis results
+        dataframes = {}
+        for filename, result in analysis_results.items():
+            if result.success and result.dataframe is not None:
+                dataframes[filename] = result.dataframe
+        
+        if not dataframes:
+            return {
+                'success': False,
+                'error': 'No valid DataFrames available for analysis.',
+                'answer': 'Nenhum dado válido disponível para análise.'
+            }
+        
+        # Step 1: Understand the question
+        understanding_result = question_agent.understand_question(question, dataframes)
+        
+        if understanding_result.get('error'):
+            return {
+                'success': False,
+                'error': understanding_result['error'],
+                'answer': f"Erro ao entender a pergunta: {understanding_result['explanation']}"
+            }
+        
+        # Step 2: Execute the generated code
+        if understanding_result.get('generated_code'):
+            execution_result = executor_agent.execute_code(
+                understanding_result['generated_code'], 
+                dataframes
+            )
+        else:
+            return {
+                'success': False,
+                'error': 'No code generated',
+                'answer': 'Não foi possível gerar código para esta pergunta. Tente reformular de forma mais específica.'
+            }
+        
+        # Step 3: Format the response
+        formatted_response = formatter_agent.format_response(
+            execution_result, 
+            question, 
+            understanding_result
+        )
+        
+        return {
+            'success': True,
+            'understanding': understanding_result,
+            'execution': execution_result,
+            'formatted_response': formatted_response,
+            'answer': formatted_response.get('natural_language_answer', 'Resposta não disponível.')
+        }
+        
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        return {
+            'success': False,
+            'error': str(e),
+            'error_details': error_details,
+            'answer': f'Erro interno: {str(e)}'
+        }
+
 # Configure the page
 st.set_page_config(
-    page_title="Agente CSV Q&A Inteligente", 
+    page_title="Agente Aprende -  CSV Q&A Inteligente", 
     layout="wide",
     page_icon="📊",
     initial_sidebar_state="expanded"
@@ -326,7 +398,7 @@ if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
 # Header
-st.markdown('<h1 class="main-header">📊 Agente CSV Q&A Inteligente</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">📊 Agente Aprende - CSV Q&A Inteligente</h1>', unsafe_allow_html=True)
 st.markdown("---")
 
 # Sidebar for file management and settings
@@ -428,14 +500,73 @@ with col2:
             st.error("❌ Digite uma pergunta para iniciar a análise.")
         else:
             with st.spinner("🤖 Processando pergunta..."):
-                # TODO: Implement QuestionUnderstandingAgent pipeline
-                st.info("🚧 Funcionalidade de Q&A em desenvolvimento. Por enquanto, use a análise de dados acima.")
+                # Complete question-answering pipeline
+                qa_result = answer_question(user_question, st.session_state.analysis_results)
+                
+                if qa_result['success']:
+                    # Display the answer
+                    st.success("✅ Pergunta processada com sucesso!")
+                    
+                    # Main answer
+                    st.markdown("### 💬 Resposta:")
+                    st.markdown(qa_result['answer'])
+                    
+                    # Show additional details in expanders
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        if qa_result.get('understanding'):
+                            with st.expander("🧠 Entendimento da Pergunta"):
+                                understanding = qa_result['understanding']
+                                st.write(f"**Confiança:** {understanding.get('confidence', 0):.2f}")
+                                st.write(f"**Operações:** {', '.join([op['operation'] for op in understanding.get('operations', [])])}")
+                                st.write(f"**Colunas:** {', '.join(understanding.get('target_columns', []))}")
+                                if understanding.get('generated_code'):
+                                    st.code(understanding['generated_code'], language='python')
+                    
+                    with col2:
+                        if qa_result.get('execution'):
+                            with st.expander("⚙️ Execução"):
+                                execution = qa_result['execution']
+                                st.write(f"**Sucesso:** {'✅' if execution.get('success') else '❌'}")
+                                st.write(f"**Tempo:** {execution.get('execution_time', 0):.3f}s")
+                                if execution.get('fallback_executed'):
+                                    st.warning(f"Fallback usado: {execution.get('fallback_strategy', 'N/A')}")
+                    
+                    with col3:
+                        if qa_result.get('formatted_response'):
+                            with st.expander("📊 Detalhes da Resposta"):
+                                response = qa_result['formatted_response']
+                                st.write(f"**Confiança:** {response.get('confidence_score', 0):.2f}")
+                                if response.get('data_insights'):
+                                    st.write("**Insights:**")
+                                    for insight in response['data_insights']:
+                                        st.write(f"• {insight}")
+                                
+                                # Show visualizations if available
+                                if response.get('visualizations'):
+                                    st.write("**Visualizações:**")
+                                    for viz in response['visualizations']:
+                                        if viz.get('type') == 'plotly' and viz.get('data'):
+                                            st.plotly_chart(viz['data'], use_container_width=True)
+                    
+                else:
+                    # Show error
+                    st.error("❌ Erro ao processar a pergunta.")
+                    st.write(qa_result['answer'])
+                    
+                    # Show debug info if available
+                    if qa_result.get('error_details'):
+                        with st.expander("🔧 Detalhes do Erro"):
+                            st.code(qa_result['error_details'])
                 
                 # Add to chat history
                 st.session_state.chat_history.append({
                     'question': user_question,
-                    'answer': "Funcionalidade em desenvolvimento - use a análise de dados completa disponível acima.",
-                    'timestamp': time.time()
+                    'answer': qa_result['answer'],
+                    'success': qa_result['success'],
+                    'timestamp': time.time(),
+                    'details': qa_result
                 })
     
     st.markdown('</div>', unsafe_allow_html=True)
@@ -446,27 +577,42 @@ if st.session_state.chat_history:
     st.subheader("💬 Histórico de Perguntas")
     
     for i, chat in enumerate(reversed(st.session_state.chat_history)):
-        with st.expander(f"Pergunta {len(st.session_state.chat_history)-i}: {chat['question'][:50]}..."):
+        success_icon = "✅" if chat.get('success', False) else "❌"
+        with st.expander(f"{success_icon} Pergunta {len(st.session_state.chat_history)-i}: {chat['question'][:50]}..."):
             st.markdown(f"**Pergunta:** {chat['question']}")
             st.markdown(f"**Resposta:** {chat['answer']}")
+            
+            # Show additional details if available
+            if chat.get('details') and chat['details'].get('success'):
+                col1, col2 = st.columns(2)
+                with col1:
+                    if chat['details'].get('understanding'):
+                        understanding = chat['details']['understanding']
+                        st.caption(f"Confiança: {understanding.get('confidence', 0):.2f}")
+                with col2:
+                    if chat['details'].get('execution'):
+                        execution = chat['details']['execution']
+                        st.caption(f"Tempo execução: {execution.get('execution_time', 0):.3f}s")
 
-# Footer with next steps
+# Footer with implementation status
 st.markdown("---")
 st.markdown("""
-### 🚀 Próximos Passos para Implementação Completa
+### 🚀 Sistema Completo e Funcional
 
-**Agentes a serem implementados:**
-- **CSVLoaderAgent**: Carregamento e parsing de arquivos CSV/ZIP
-- **SchemaAnalyzerAgent**: Análise de schema e sugestão de relações
-- **QuestionUnderstandingAgent**: Interpretação de perguntas em linguagem natural
-- **QueryExecutorAgent**: Execução de código pandas gerado
-- **AnswerFormatterAgent**: Formatação de respostas
+**Agentes implementados e funcionais:**
+- ✅ **CSVLoaderAgent**: Carregamento e análise completa de arquivos CSV/ZIP
+- ✅ **QuestionUnderstandingAgent**: Interpretação avançada de perguntas em linguagem natural (pt-BR + en-US)
+- ✅ **QueryExecutorAgent**: Execução segura de código pandas com fallbacks inteligentes
+- ✅ **AnswerFormatterAgent**: Formatação de respostas com visualizações e localização
 
-**Recursos adicionais:**
-- Visualizações interativas com plotly
-- Export de resultados
-- Histórico persistente
-- Suporte a múltiplos idiomas
+**Recursos disponíveis:**
+- 🔍 Análise automática de dados com insights de IA
+- 💬 Perguntas em linguagem natural (português e inglês)
+- 📊 Visualizações interativas automáticas
+- 🔒 Execução segura de código com validação
+- 📈 Análise de qualidade e relacionamentos entre datasets
+- 🌐 Suporte multilíngue (pt-BR/en-US)
+- 📋 Histórico completo de perguntas e respostas
 """)
 
 # Development info (remove in production)

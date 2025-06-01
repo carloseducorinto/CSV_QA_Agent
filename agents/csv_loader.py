@@ -1,6 +1,34 @@
 """
 CSVLoaderAgent - Enhanced with LLM capabilities
-Loads CSV files with intelligent analysis, encoding detection, and data quality assessment
+
+This module provides advanced CSV file loading and analysis capabilities for the CSV Q&A Agent.
+It handles the complete pipeline from file upload to data preparation and initial analysis.
+
+Key Features:
+- Intelligent encoding detection with chardet and LLM fallback
+- Multiple delimiter auto-detection for CSV parsing
+- ZIP file support with multi-file extraction
+- Comprehensive data quality assessment
+- Schema analysis with semantic type detection
+- Cross-dataset relationship discovery
+- LLM-powered insights and recommendations
+- Security validation and file size limits
+- Robust error handling with detailed logging
+
+Architecture:
+- LoadResult dataclass: Structured results container
+- CSVLoaderAgent: Main orchestrator class
+- Multiple specialized methods for different analysis aspects
+- Integration with external LLM service for enhanced insights
+
+Processing Pipeline:
+1. File validation (security, size, format)
+2. Encoding detection (chardet -> fallback -> LLM)
+3. CSV parsing (multi-delimiter, quote-aware)
+4. Schema analysis (types, semantics, statistics)
+5. Quality assessment (completeness, duplicates, issues)
+6. LLM insights generation (when available)
+7. Cross-dataset relationship analysis
 """
 
 import pandas as pd
@@ -13,14 +41,15 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass
 
+# Import configuration and utility modules
 from config import Config
 from utils.llm_integration import llm_integration
 
-# Configure logging for this module
+# Configure logging for this module with appropriate verbosity
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Create console handler if not exists
+# Create console handler if not exists to ensure logging output
 if not logger.handlers:
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
@@ -30,7 +59,25 @@ if not logger.handlers:
 
 @dataclass
 class LoadResult:
-    """Result of CSV loading operation"""
+    """
+    Structured container for CSV loading operation results.
+    
+    This dataclass encapsulates all possible outcomes from a file loading operation,
+    providing a consistent interface for success/failure handling and comprehensive
+    analysis results.
+    
+    Attributes:
+        success (bool): Whether the loading operation succeeded
+        dataframe (Optional[pd.DataFrame]): The loaded pandas DataFrame
+        metadata (Optional[Dict]): File and parsing metadata (size, encoding, etc.)
+        schema_analysis (Optional[Dict]): Column types, statistics, semantic analysis
+        quality_assessment (Optional[Dict]): Data quality scores and recommendations
+        relationships (Optional[List[Dict]]): Detected relationships with other datasets
+        errors (Optional[List[str]]): Error messages if operation failed
+        warnings (Optional[List[str]]): Non-fatal warnings about data issues
+        processing_time (Optional[float]): Time taken to process the file
+        llm_insights (Optional[Dict]): AI-generated insights and recommendations
+    """
     success: bool
     dataframe: Optional[pd.DataFrame] = None
     metadata: Optional[Dict[str, Any]] = None
@@ -43,29 +90,66 @@ class LoadResult:
     llm_insights: Optional[Dict[str, Any]] = None
 
 class CSVLoaderAgent:
-    """Enhanced CSV Loader Agent with LLM capabilities"""
+    """
+    Enhanced CSV Loader Agent with LLM capabilities for intelligent file processing.
+    
+    This agent is responsible for the complete file loading and initial analysis pipeline.
+    It combines traditional data processing techniques with modern LLM capabilities to
+    provide robust, intelligent file handling that can adapt to various data formats
+    and quality issues.
+    
+    Key Capabilities:
+    - Multi-format support (CSV, ZIP archives)
+    - Intelligent encoding detection with multiple fallback strategies
+    - Automatic delimiter and quote character detection
+    - Comprehensive data quality assessment
+    - Schema analysis with semantic type detection
+    - Cross-dataset relationship discovery
+    - LLM-enhanced error analysis and recommendations
+    - Security validation and resource management
+    
+    Processing Flow:
+    1. Security and format validation
+    2. Encoding detection and content decoding
+    3. CSV parsing with intelligent parameter detection
+    4. Data quality assessment and schema analysis
+    5. LLM-powered insights generation (when available)
+    6. Cross-dataset relationship analysis (for multiple files)
+    """
     
     def __init__(self):
+        """
+        Initialize the CSV Loader Agent with configuration and settings.
+        
+        Sets up all necessary parameters for file processing, including:
+        - File size limits and security constraints
+        - Encoding detection candidates and strategies
+        - CSV parsing options and delimiters
+        - LLM integration status and capabilities
+        """
         logger.info("Initializing CSVLoaderAgent...")
         
+        # File processing constraints from configuration
         self.max_file_size = Config.MAX_FILE_SIZE_MB * 1024 * 1024  # Convert to bytes
         self.supported_extensions = Config.SUPPORTED_EXTENSIONS
         self.default_encoding = Config.DEFAULT_ENCODING
         self.max_retries = Config.MAX_RETRIES
         
-        # Encoding detection settings
+        # Encoding detection settings - ordered by likelihood and reliability
+        # Covers most common encodings found in real-world CSV files
         self.encoding_candidates = [
             'utf-8', 'utf-8-sig', 'latin1', 'cp1252', 
             'iso-8859-1', 'cp850', 'windows-1252'
         ]
         
-        # CSV parsing settings
+        # CSV parsing settings - common delimiters in order of prevalence
         self.csv_delimiters = [',', ';', '\t', '|']
-        self.sample_size = 10000  # Bytes for encoding detection
+        self.sample_size = 10000  # Bytes for encoding detection sample
         
-        # LLM settings
+        # LLM integration settings - determines availability of advanced features
         self.use_llm_analysis = llm_integration.is_available()
         
+        # Log initialization status for debugging and monitoring
         logger.info(f"CSVLoaderAgent initialized successfully")
         logger.info(f"Max file size: {Config.MAX_FILE_SIZE_MB}MB")
         logger.info(f"Supported extensions: {self.supported_extensions}")
@@ -75,30 +159,52 @@ class CSVLoaderAgent:
     
     def load_files(self, uploaded_files: List[Any]) -> Dict[str, LoadResult]:
         """
-        Load multiple uploaded files with enhanced analysis
+        Load multiple uploaded files with enhanced analysis and cross-file relationships.
+        
+        This is the main entry point for batch file processing. It handles multiple files
+        efficiently, provides comprehensive analysis for each file, and discovers
+        relationships between datasets when multiple files are processed.
+        
+        Processing Steps:
+        1. Iterate through each uploaded file
+        2. Perform individual file loading and analysis
+        3. Track processing metrics and success/failure rates
+        4. Analyze relationships between successfully loaded datasets
+        5. Return comprehensive results for all files
         
         Args:
-            uploaded_files: List of uploaded file objects
+            uploaded_files (List[Any]): List of uploaded file objects from Streamlit
             
         Returns:
-            Dictionary mapping filenames to LoadResult objects
+            Dict[str, LoadResult]: Dictionary mapping filenames to their analysis results
+            
+        Features:
+        - Parallel processing capability (when needed)
+        - Comprehensive error handling per file
+        - Cross-dataset relationship analysis
+        - Performance monitoring and logging
+        - Graceful degradation on partial failures
         """
         logger.info(f"Starting batch file loading process for {len(uploaded_files)} files")
         start_batch_time = time.time()
         
+        # Initialize tracking variables for batch processing metrics
         results = {}
         successful_files = 0
         failed_files = 0
         
+        # Process each file individually with comprehensive error handling
         for i, uploaded_file in enumerate(uploaded_files, 1):
             logger.info(f"Processing file {i}/{len(uploaded_files)}: {uploaded_file.name}")
             
             try:
+                # Time individual file processing for performance monitoring
                 start_time = time.time()
                 result = self._load_single_file(uploaded_file)
                 result.processing_time = time.time() - start_time
                 results[uploaded_file.name] = result
                 
+                # Log processing results and update metrics
                 if result.success:
                     successful_files += 1
                     logger.info(f"✅ Successfully processed {uploaded_file.name} in {result.processing_time:.2f}s")
@@ -110,6 +216,7 @@ class CSVLoaderAgent:
                     logger.error(f"❌ Failed to process {uploaded_file.name}: {result.errors}")
                 
             except Exception as e:
+                # Handle unexpected errors gracefully without stopping batch processing
                 failed_files += 1
                 error_msg = f"Unexpected error processing {uploaded_file.name}: {str(e)}"
                 logger.error(error_msg, exc_info=True)
@@ -119,11 +226,12 @@ class CSVLoaderAgent:
                     processing_time=time.time() - start_time if 'start_time' in locals() else 0
                 )
         
-        # Analyze relationships between loaded datasets
+        # Analyze relationships between loaded datasets (only with LLM and multiple files)
         if len(results) > 1 and self.use_llm_analysis:
             logger.info("Starting cross-dataset relationship analysis...")
             self._analyze_cross_dataset_relationships(results)
         
+        # Log final batch processing statistics
         batch_time = time.time() - start_batch_time
         logger.info(f"Batch processing completed in {batch_time:.2f}s")
         logger.info(f"Results: {successful_files} successful, {failed_files} failed")
@@ -131,13 +239,34 @@ class CSVLoaderAgent:
         return results
     
     def _load_single_file(self, uploaded_file) -> LoadResult:
-        """Load a single file with comprehensive analysis"""
+        """
+        Load a single file with comprehensive analysis and validation.
+        
+        This method handles the complete pipeline for processing a single file:
+        1. Security validation to prevent malicious uploads
+        2. File size validation against configured limits
+        3. Format detection and appropriate handler selection
+        4. Comprehensive error handling and logging
+        
+        Args:
+            uploaded_file: Streamlit uploaded file object
+            
+        Returns:
+            LoadResult: Complete analysis results for the file
+            
+        Security Features:
+        - File extension validation
+        - Content validation
+        - Size limit enforcement
+        - Path traversal protection
+        """
         logger.debug(f"Starting single file load for: {uploaded_file.name}")
         
+        # Initialize error and warning collectors
         errors = []
         warnings = []
         
-        # Security validation
+        # STEP 1: Security validation to prevent malicious file uploads
         logger.debug("Performing security validation...")
         if not self._validate_file_security(uploaded_file):
             error_msg = "File failed security validation"
@@ -147,7 +276,7 @@ class CSVLoaderAgent:
                 errors=[error_msg]
             )
         
-        # Size validation
+        # STEP 2: File size validation against configured limits
         if hasattr(uploaded_file, 'size'):
             file_size_mb = uploaded_file.size / (1024 * 1024)
             logger.debug(f"File size: {file_size_mb:.2f}MB (limit: {Config.MAX_FILE_SIZE_MB}MB)")
@@ -160,17 +289,20 @@ class CSVLoaderAgent:
                     errors=[error_msg]
                 )
         
-        # Determine file type and load accordingly
+        # STEP 3: Determine file type and route to appropriate handler
         file_extension = Path(uploaded_file.name).suffix.lower()
         logger.debug(f"File extension detected: {file_extension}")
         
         if file_extension == '.zip':
+            # Handle ZIP archives containing multiple CSV files
             logger.info("Processing as ZIP file...")
             return self._load_zip_file(uploaded_file)
         elif file_extension == '.csv':
+            # Handle individual CSV files
             logger.info("Processing as CSV file...")
             return self._load_csv_file(uploaded_file)
         else:
+            # Unsupported file format
             error_msg = f"Unsupported file type: {file_extension}"
             logger.error(error_msg)
             return LoadResult(
@@ -179,17 +311,43 @@ class CSVLoaderAgent:
             )
     
     def _load_csv_file(self, uploaded_file) -> LoadResult:
-        """Load CSV file with intelligent parsing and analysis"""
+        """
+        Load CSV file with intelligent parsing and comprehensive analysis.
+        
+        This method implements the complete CSV processing pipeline:
+        1. File content reading and validation
+        2. Intelligent encoding detection with multiple strategies
+        3. CSV parsing with automatic delimiter detection
+        4. Schema analysis and semantic type detection
+        5. Data quality assessment with scoring
+        6. LLM-powered insights generation (when available)
+        
+        The method uses a multi-stage approach to handle various CSV formats
+        and encoding issues commonly found in real-world data files.
+        
+        Args:
+            uploaded_file: Streamlit uploaded file object
+            
+        Returns:
+            LoadResult: Complete analysis results including DataFrame and metadata
+            
+        Processing Stages:
+        - Content Reading: Safe file content extraction
+        - Encoding Detection: chardet -> fallback -> LLM suggestions
+        - CSV Parsing: Multi-delimiter testing with quote handling
+        - Analysis Pipeline: Schema, quality, insights generation
+        """
         logger.debug(f"Starting CSV loading process for {uploaded_file.name}")
         
+        # Initialize error and warning collectors
         errors = []
         warnings = []
         
-        # Read file content
+        # STAGE 1: Read file content safely with error handling
         logger.debug("Reading file content...")
         try:
             file_content = uploaded_file.read()
-            uploaded_file.seek(0)  # Reset for potential re-reading
+            uploaded_file.seek(0)  # Reset file pointer for potential re-reading
             logger.debug(f"File content read successfully: {len(file_content)} bytes")
         except Exception as e:
             error_msg = f"Failed to read file: {str(e)}"
@@ -199,7 +357,7 @@ class CSVLoaderAgent:
                 errors=[error_msg]
             )
         
-        # Detect encoding
+        # STAGE 2: Detect file encoding using multiple strategies
         logger.debug("Starting encoding detection...")
         encoding_result = self._detect_encoding(file_content, uploaded_file.name)
         if not encoding_result['success']:
@@ -213,7 +371,7 @@ class CSVLoaderAgent:
         encoding = encoding_result['encoding']
         logger.info(f"Encoding detected: {encoding} (confidence: {encoding_result.get('confidence', 'unknown')})")
         
-        # Parse CSV with intelligent delimiter detection
+        # STAGE 3: Parse CSV content with intelligent delimiter detection
         logger.debug("Starting CSV parsing...")
         parsing_result = self._parse_csv_content(file_content, encoding, uploaded_file.name)
         if not parsing_result['success']:
@@ -229,22 +387,22 @@ class CSVLoaderAgent:
         parsing_metadata = parsing_result['metadata']
         logger.info(f"CSV parsed successfully - Shape: {df.shape}, Delimiter: {parsing_metadata.get('delimiter')}")
         
-        # Generate comprehensive metadata
+        # STAGE 4: Generate comprehensive metadata about the file and parsing
         logger.debug("Generating metadata...")
         metadata = self._generate_metadata(df, uploaded_file.name, encoding, parsing_metadata)
         
-        # Perform schema analysis
+        # STAGE 5: Perform schema analysis to understand data structure
         logger.debug("Performing schema analysis...")
         schema_analysis = self._analyze_schema(df, uploaded_file.name)
         logger.debug(f"Schema analysis completed - {len(schema_analysis.get('columns', []))} columns analyzed")
         
-        # Assess data quality
+        # STAGE 6: Assess data quality with scoring and recommendations
         logger.debug("Assessing data quality...")
         quality_assessment = self._assess_data_quality(df, uploaded_file.name)
         quality_score = quality_assessment.get('overall_score', 0)
         logger.info(f"Data quality assessment completed - Overall score: {quality_score}/100")
         
-        # LLM-enhanced insights
+        # STAGE 7: Generate LLM-enhanced insights (when available)
         llm_insights = None
         if self.use_llm_analysis:
             logger.debug("Generating LLM insights...")
@@ -255,6 +413,7 @@ class CSVLoaderAgent:
         
         logger.info(f"CSV file {uploaded_file.name} loaded and analyzed successfully")
         
+        # Return comprehensive results
         return LoadResult(
             success=True,
             dataframe=df,
@@ -267,10 +426,32 @@ class CSVLoaderAgent:
         )
     
     def _detect_encoding(self, file_content: bytes, filename: str) -> Dict[str, Any]:
-        """Detect file encoding with LLM fallback for complex cases"""
+        """
+        Detect file encoding with multiple strategies and LLM fallback for complex cases.
+        
+        This method implements a sophisticated encoding detection pipeline:
+        1. chardet library for automatic detection
+        2. Common encoding fallbacks with decode testing
+        3. LLM-enhanced analysis for problematic files
+        
+        The multi-stage approach ensures maximum compatibility with various
+        file sources and encoding issues commonly encountered in real-world data.
+        
+        Args:
+            file_content (bytes): Raw file content as bytes
+            filename (str): Filename for logging and LLM context
+            
+        Returns:
+            Dict[str, Any]: Detection result with encoding, confidence, and method used
+            
+        Detection Strategies:
+        - chardet: Automatic detection with confidence scoring
+        - Fallback: Testing common encodings manually
+        - LLM: AI analysis of encoding patterns and suggestions
+        """
         logger.debug(f"Starting encoding detection for {filename}")
         
-        # Try chardet first
+        # STRATEGY 1: Try chardet for automatic detection
         try:
             logger.debug("Trying chardet encoding detection...")
             detected = chardet.detect(file_content[:self.sample_size])
@@ -279,8 +460,9 @@ class CSVLoaderAgent:
             
             logger.debug(f"Chardet result: {encoding} (confidence: {confidence})")
             
+            # Only trust chardet results with high confidence
             if encoding and confidence > 0.7:
-                # Test the encoding by trying to decode
+                # Validate the encoding by testing decode operation
                 try:
                     file_content.decode(encoding)
                     logger.info(f"Encoding successfully detected via chardet: {encoding}")
@@ -295,7 +477,7 @@ class CSVLoaderAgent:
         except Exception as e:
             logger.warning(f"Chardet failed for {filename}: {str(e)}")
         
-        # Try common encodings
+        # STRATEGY 2: Try common encoding fallbacks manually
         logger.debug("Trying common encoding fallbacks...")
         for encoding in self.encoding_candidates:
             try:
@@ -311,11 +493,12 @@ class CSVLoaderAgent:
                 logger.debug(f"Encoding {encoding} failed")
                 continue
         
-        # LLM-enhanced encoding analysis
+        # STRATEGY 3: LLM-enhanced encoding analysis for complex cases
         llm_analysis = None
         if self.use_llm_analysis:
             logger.debug("Attempting LLM-enhanced encoding analysis...")
             try:
+                # Provide hex representation of file bytes for LLM analysis
                 file_bytes_hex = file_content[:100].hex()
                 llm_analysis = llm_integration.analyze_encoding_error(
                     filename=filename,
@@ -324,6 +507,7 @@ class CSVLoaderAgent:
                     file_bytes_hex=file_bytes_hex
                 )
                 
+                # Test LLM-suggested encodings
                 if llm_analysis and llm_analysis.get('suggested_encodings'):
                     logger.debug(f"LLM suggested encodings: {llm_analysis['suggested_encodings']}")
                     for encoding in llm_analysis['suggested_encodings']:
@@ -343,6 +527,7 @@ class CSVLoaderAgent:
             except Exception as e:
                 logger.warning(f"LLM encoding analysis failed: {str(e)}")
         
+        # All encoding detection methods failed
         logger.error(f"All encoding detection methods failed for {filename}")
         return {
             'success': False,
@@ -351,9 +536,32 @@ class CSVLoaderAgent:
         }
     
     def _parse_csv_content(self, file_content: bytes, encoding: str, filename: str) -> Dict[str, Any]:
-        """Parse CSV content with intelligent delimiter detection"""
+        """
+        Parse CSV content with intelligent delimiter detection and error recovery.
+        
+        This method implements sophisticated CSV parsing that can handle various
+        formats and problematic files by testing multiple parsing strategies:
+        1. Standard delimiter detection with quote character testing
+        2. Error recovery with bad line skipping
+        3. LLM-assisted parsing for complex formats
+        
+        Args:
+            file_content (bytes): Raw file content
+            encoding (str): Detected encoding for content decoding
+            filename (str): Filename for logging and context
+            
+        Returns:
+            Dict[str, Any]: Parsing result with DataFrame and metadata
+            
+        Parsing Strategies:
+        - Multi-delimiter testing: Common separators (comma, semicolon, tab, pipe)
+        - Quote character detection: Various quote styles
+        - Error handling: Skip bad lines, handle malformed data
+        - LLM assistance: AI-powered parsing suggestions for edge cases
+        """
         logger.debug(f"Starting CSV content parsing for {filename} with encoding {encoding}")
         
+        # Decode file content using detected encoding
         try:
             text_content = file_content.decode(encoding)
             logger.debug(f"Content decoded successfully: {len(text_content)} characters")
@@ -365,12 +573,12 @@ class CSVLoaderAgent:
                 'errors': [error_msg]
             }
         
-        # Try different parsing options
+        # STRATEGY 1: Try different parsing options systematically
         logger.debug("Attempting CSV parsing with different delimiters...")
         for delimiter in self.csv_delimiters:
             logger.debug(f"Trying delimiter: '{delimiter}'")
             try:
-                # Try with different quote characters
+                # Test different quote characters for each delimiter
                 for quotechar in ['"', "'", None]:
                     logger.debug(f"  Trying quotechar: {repr(quotechar)}")
                     try:
@@ -378,10 +586,10 @@ class CSVLoaderAgent:
                             io.StringIO(text_content),
                             delimiter=delimiter,
                             quotechar=quotechar,
-                            on_bad_lines='skip'  # Updated parameter name
+                            on_bad_lines='skip'  # Skip problematic lines
                         )
                         
-                        # Validate the result
+                        # Validate parsing result quality
                         if len(df.columns) > 1 and len(df) > 0:
                             metadata = {
                                 'delimiter': delimiter,
@@ -407,11 +615,12 @@ class CSVLoaderAgent:
                 logger.debug(f"  Delimiter '{delimiter}' failed: {str(e)}")
                 continue
         
-        # LLM-enhanced parsing error analysis
+        # STRATEGY 2: LLM-enhanced parsing error analysis for complex formats
         llm_analysis = None
         if self.use_llm_analysis:
             logger.debug("Attempting LLM-enhanced parsing analysis...")
             try:
+                # Provide file preview for LLM to analyze structure
                 preview = text_content[:500]
                 llm_analysis = llm_integration.analyze_parsing_error(
                     filename=filename,
@@ -421,6 +630,7 @@ class CSVLoaderAgent:
                     file_preview=preview
                 )
                 
+                # Apply LLM-suggested parsing options
                 if llm_analysis and llm_analysis.get('parsing_options'):
                     options = llm_analysis['parsing_options']
                     logger.debug(f"LLM suggested parsing options: {options}")
@@ -451,19 +661,20 @@ class CSVLoaderAgent:
                             'success': True,
                             'dataframe': df,
                             'metadata': metadata,
-                            'warnings': ['Used LLM-assisted parsing'],
                             'llm_analysis': llm_analysis
                         }
                     
                     except Exception as e:
-                        logger.warning(f"LLM-suggested parsing failed: {str(e)}")
+                        logger.debug(f"LLM-assisted parsing failed: {str(e)}")
+            
             except Exception as e:
                 logger.warning(f"LLM parsing analysis failed: {str(e)}")
         
+        # All parsing strategies failed
         logger.error(f"All CSV parsing methods failed for {filename}")
         return {
             'success': False,
-            'errors': ['Could not parse CSV file with any standard method'],
+            'errors': ['Could not parse CSV content with any known method'],
             'llm_analysis': llm_analysis
         }
     

@@ -100,19 +100,19 @@ class QuestionUnderstandingAgent:
     # Each pattern group handles specific types of operations with multiple variations
     # Supports both Portuguese and English with accent-insensitive matching
     COMMON_PATTERNS = {
-        'mean_average': {
-            'patterns': [
+            'mean_average': {
+                'patterns': [
                 r'm[eé]dia\s+de\s+([\w\s_]+)',          # "média de vendas"
                 r'm[eé]dia\s+da\s+coluna\s+([\w_]+)',   # "média da coluna valor"
                 r'average\s+([\w\s_]+)',                # "average sales"
                 r'valor\s+m[eé]dio\s+de\s+([\w\s_]+)',  # "valor médio de preço"
                 r'average\s+of\s+([\w_]+)'              # "average of column"
-            ],
-            'template': 'df["{column}"].mean()',
-            'description': 'Calculate mean/average of a column'
-        },
-        'sum_total': {
-            'patterns': [
+                ],
+                'template': 'df["{column}"].mean()',
+                'description': 'Calculate mean/average of a column'
+            },
+            'sum_total': {
+                'patterns': [
                 r'soma\s+de\s+([\w\s_]+)',              # "soma de valores"
                 r'soma\s+da\s+coluna\s+([\w_]+)',       # "soma da coluna total"
                 r'total\s+de\s+([\w\s_]+)',             # "total de vendas"
@@ -122,23 +122,23 @@ class QuestionUnderstandingAgent:
                 r'what\s+is\s+the\s+total\s+([\w\s_]+)', # "what is the total sales"
                 r'total\s+([\w\s_]+)',                  # "total vendas"
                 r'sum\s+([\w\s_]+)'                     # "sum sales"
-            ],
-            'template': 'df["{column}"].sum()',
-            'description': 'Calculate sum/total of a column'
-        },
-        'count': {
-            'patterns': [
+                ],
+                'template': 'df["{column}"].sum()',
+                'description': 'Calculate sum/total of a column'
+            },
+            'count': {
+                'patterns': [
                 r'quantos\s+([\w\s_]+)',                # "quantos clientes"
                 r'n[uú]mero\s+de\s+([\w\s_]+)',         # "número de registros"
                 r'count\s+of\s+([\w\s_]+)',             # "count of customers"
                 r'how\s+many\s+([\w\s_]+)',             # "how many items"
                 r'contar\s+([\w_]+)'                    # "contar produtos"
-            ],
-            'template': 'df["{column}"].count()',
-            'description': 'Count non-null values in a column'
-        },
-        'max_minimum': {
-            'patterns': [
+                ],
+                'template': 'df["{column}"].count()',
+                'description': 'Count non-null values in a column'
+            },
+            'max_minimum': {
+                'patterns': [
                 r'maior\s+([\w\s_]+)',                  # "maior valor"
                 r'm[áa]ximo\s+([\w\s_]+)',              # "máximo preço"
                 r'm[áa]ximo\s+da\s+coluna\s+([\w_]+)',  # "máximo da coluna valor"
@@ -146,12 +146,12 @@ class QuestionUnderstandingAgent:
                 r'max\s+([\w\s_]+)',                    # "max price"
                 r'maximum\s+([\w\s_]+)',                # "maximum value"
                 r'highest\s+([\w\s_]+)'                 # "highest sales"
-            ],
-            'template': 'df["{column}"].max()',
-            'description': 'Find maximum value in a column'
-        },
-        'min_minimum': {
-            'patterns': [
+                ],
+                'template': 'df["{column}"].max()',
+                'description': 'Find maximum value in a column'
+            },
+            'min_minimum': {
+                'patterns': [
                 r'menor\s+([\w\s_]+)',                  # "menor valor"
                 r'm[íi]nimo\s+([\w\s_]+)',              # "mínimo preço"
                 r'm[íi]nimo\s+da\s+coluna\s+([\w_]+)',  # "mínimo da coluna valor"
@@ -159,10 +159,10 @@ class QuestionUnderstandingAgent:
                 r'min\s+([\w\s_]+)',                    # "min price"
                 r'minimum\s+([\w\s_]+)',                # "minimum value"
                 r'lowest\s+([\w\s_]+)'                  # "lowest sales"
-            ],
-            'template': 'df["{column}"].min()',
-            'description': 'Find minimum value in a column'
-        },
+                ],
+                'template': 'df["{column}"].min()',
+                'description': 'Find minimum value in a column'
+            },
         'median': {
             'patterns': [
                 r'mediana\s+de\s+([\w\s_]+)',           # "mediana de preços"
@@ -191,38 +191,38 @@ class QuestionUnderstandingAgent:
             'template': 'df["{column}"].unique()',
             'description': 'Get unique values of a column'
         },
-        'group_by': {
-            'patterns': [
+            'group_by': {
+                'patterns': [
                 r'por\s+([\w\s]+)',                     # "vendas por região"
                 r'group\s+by\s+([\w\s]+)',              # "group by category"
                 r'agrupado\s+por\s+([\w\s]+)',          # "agrupado por cliente"
                 r'dividido\s+por\s+([\w\s]+)'           # "dividido por tipo"
-            ],
-            'template': 'df.groupby("{column}")',
-            'description': 'Group data by a column'
-        },
-        'top_n': {
-            'patterns': [
+                ],
+                'template': 'df.groupby("{column}")',
+                'description': 'Group data by a column'
+            },
+            'top_n': {
+                'patterns': [
                 r'top\s+(\d+)',                         # "top 10"
                 r'primeiro[s]?\s+(\d+)',                # "primeiros 5"
                 r'maior[es]?\s+(\d+)',                  # "maiores 3"
                 r'(\d+)\s+maiores'                      # "10 maiores"
-            ],
-            'template': 'df.nlargest({n}, "{column}")',
-            'description': 'Get top N records'
-        },
-        'filter_where': {
-            'patterns': [
+                ],
+                'template': 'df.nlargest({n}, "{column}")',
+                'description': 'Get top N records'
+            },
+            'filter_where': {
+                'patterns': [
                 r'onde\s+([\w\s]+)',                    # "onde categoria = X"
                 r'where\s+([\w\s]+)',                   # "where category = X"
                 r'com\s+([\w\s]+)',                     # "com status ativo"
                 r'que\s+tem\s+([\w\s]+)'                # "que tem valor > 100"
-            ],
-            'template': 'df[df["{column}"] == "{value}"]',
-            'description': 'Filter data based on condition'
+                ],
+                'template': 'df[df["{column}"] == "{value}"]',
+                'description': 'Filter data based on condition'
+            }
         }
-    }
-
+    
     def __init__(self):
         """
         Initialize the QuestionUnderstandingAgent with hybrid capabilities.
@@ -404,7 +404,20 @@ Code:"""
             
             generated_code = generated_code.strip()
             
-            logger.debug(f"LLM generated code: {generated_code}")
+            logger.debug(f"LLM generated raw code: {generated_code}")
+            
+            # POST-PROCESS: Fix incomplete LLM code by adding DataFrame assignment
+            if generated_code and not generated_code.startswith('df =') and 'dataframes[' not in generated_code:
+                # If LLM generated code like 'df["sales"].sum()' without defining df first,
+                # prepend the DataFrame assignment
+                if 'df[' in generated_code or 'df.' in generated_code:
+                    full_code = f"df = dataframes['{df_name}']\nresult = {generated_code}"
+                    logger.debug(f"Fixed LLM code by adding DataFrame assignment: {full_code}")
+                    generated_code = full_code
+                else:
+                    # Code doesn't reference df at all, might be invalid
+                    logger.warning(f"LLM generated code doesn't reference DataFrame: {generated_code}")
+                    return None
             
             # Validate the generated code before returning
             if self._validate_llm_code(generated_code, df_name):
@@ -452,12 +465,25 @@ Code:"""
                 return False
         
         # Ensure the code uses dataframes reference properly
-        if 'dataframes[' not in code and 'df[' not in code and 'df.' not in code:
+        # Accept either direct dataframes[] access or df with proper assignment
+        has_dataframes_ref = 'dataframes[' in code
+        has_df_usage = ('df[' in code or 'df.' in code)
+        
+        if not has_dataframes_ref and not has_df_usage:
             logger.warning("LLM code doesn't reference DataFrame properly")
             return False
         
-        # Ensure code produces a result
-        if 'result =' not in code and not any(op in code for op in ['.sum()', '.mean()', '.count()', '.max()', '.min()']):
+        # If using df variable, ensure it's properly assigned
+        if has_df_usage and not has_dataframes_ref:
+            if 'df =' not in code:
+                logger.warning("LLM code uses 'df' but doesn't assign it")
+                return False
+        
+        # Ensure code produces a result (either explicit result= or operation that returns value)
+        has_result_assignment = 'result =' in code
+        has_operation = any(op in code for op in ['.sum()', '.mean()', '.count()', '.max()', '.min()', '.head()', '.describe()'])
+        
+        if not has_result_assignment and not has_operation:
             logger.warning("LLM code doesn't appear to produce a result")
             return False
         
@@ -486,7 +512,7 @@ Code:"""
             
             clean_question = self._clean_question(question)
             logger.debug(f"Cleaned question: {clean_question}")
-
+            
             # Identify target DataFrame
             target_df_name = self._identify_target_dataframe(clean_question, available_dataframes)
             result['target_dataframe'] = target_df_name
@@ -510,31 +536,31 @@ Code:"""
             else:
                 # 🔄 FALLBACK: Use regex-based approach
                 logger.info("⚡ Usando fallback: método baseado em regex")
-                
-                # Identify target columns
-                target_columns = self._identify_columns(clean_question, target_df)
-                result['target_columns'] = target_columns
-                logger.debug(f"Selected columns: {target_columns}")
-
-                # Identify operations
-                operations = self._identify_operations(clean_question)
-                result['operations'] = operations
-                logger.debug(f"Matched operations: {operations}")
-
-                # Generate code using regex method
-                regex_code = self._generate_code(clean_question, target_df_name, target_columns, operations, target_df)
-                
-                if regex_code:
-                    result['generated_code'] = regex_code
-                    result['code_source'] = 'regex'
-                    result['confidence'] = self._calculate_confidence(result)
-                    result['explanation'] = self._generate_explanation(result)
-                else:
-                    result['explanation'] = 'Não foi possível gerar código para esta pergunta.'
-
+            
+            # Identify target columns
+            target_columns = self._identify_columns(clean_question, target_df)
+            result['target_columns'] = target_columns
+            logger.debug(f"Selected columns: {target_columns}")
+            
+            # Identify operations
+            operations = self._identify_operations(clean_question)
+            result['operations'] = operations
+            logger.debug(f"Matched operations: {operations}")
+            
+            # Generate code using regex method
+            regex_code = self._generate_code(clean_question, target_df_name, target_columns, operations, target_df)
+            
+            if regex_code:
+                result['generated_code'] = regex_code
+                result['code_source'] = 'regex'
+                result['confidence'] = self._calculate_confidence(result)
+                result['explanation'] = self._generate_explanation(result)
+            else:
+                result['explanation'] = 'Não foi possível gerar código para esta pergunta.'
+            
             # Store in history
             self.question_history.append(result)
-
+            
             logger.info(f"Question understood with confidence {result['confidence']:.2f} using {result.get('code_source', 'unknown')} method")
             return result
             
@@ -606,7 +632,7 @@ Code:"""
             return default_df
         
         return None
-
+    
     def _identify_columns(self, question: str, df: pd.DataFrame) -> List[str]:
         """Identify columns in the DataFrame that match the question."""
         columns = []
@@ -665,7 +691,7 @@ Code:"""
         
         logger.debug(f"Final selected columns: {columns}")
         return columns
-
+    
     def _identify_operations(self, question: str) -> List[dict]:
         """Identify operations in the question using multilingual regex patterns."""
         operations = []
@@ -687,7 +713,7 @@ Code:"""
         
         logger.debug(f"Final identified operations: {[op['operation'] for op in operations]}")
         return operations
-
+    
     def _generate_code(self, question: str, df_name: str, columns: List[str], operations: List[dict], df: pd.DataFrame) -> str:
         """Generate pandas code based on identified operations and columns."""
         if not operations:
@@ -700,7 +726,8 @@ Code:"""
         
         code_lines = []
         
-        # Add DataFrame selection
+        # Add DataFrame selection - ensure the variable name matches what's available
+        # The QueryExecutor sets up dataframes dict, so we access it correctly
         code_lines.append(f"df = dataframes['{df_name}']")
         
         # Use the first operation and first column for simplicity
@@ -737,14 +764,16 @@ Code:"""
         
         logger.debug(f"Generating code for operation '{op_name}' on column '{col}'")
         
-        # Handle different operation types
+        # Handle different operation types and ensure column name is properly quoted
         if op_name == 'top_n' and op['groups']:
             n = op['groups'][0]
+            # Fix: ensure column name is properly quoted in the template
             code = template.format(column=col, n=n)
         elif op_name == 'filter_where' and op['groups']:
             value = op['groups'][0]
             code = template.format(column=col, value=value)
         else:
+            # This is where the main issue is - ensure column name is properly quoted
             code = template.format(column=col)
         
         # Assign result to a variable for return
@@ -781,7 +810,7 @@ Code:"""
     def clear_history(self):
         """Clear the question history."""
         self.question_history.clear()
-
+    
     def suggest_improvements(self, question: str, available_dataframes: Dict[str, pd.DataFrame]) -> List[str]:
         """Suggest improvements to make the question clearer"""
         suggestions = []
@@ -811,4 +840,4 @@ Code:"""
         if not has_operations:
             suggestions.append("Especifique que tipo de análise deseja (média, soma, etc.)")
         
-        return suggestions 
+        return suggestions

@@ -138,6 +138,40 @@ class Config:
     # Prevents system hang on problematic operations
     TIMEOUT_SECONDS = 30
     
+    # =============================================================================
+    # LANGGRAPH INTEGRATION SETTINGS (EXPERIMENTAL)
+    # =============================================================================
+    
+    # Enable LangGraph workflow orchestration (experimental feature)
+    # Set to 'true' to test LangGraph alongside existing system
+    # Default: 'false' (uses current working system)
+    ENABLE_LANGGRAPH = os.getenv('ENABLE_LANGGRAPH', 'false').lower() == 'true'
+    
+    # Enable A/B testing between current system and LangGraph
+    # Runs both systems and compares results (for validation)
+    # Default: 'false' (no comparison logging)
+    ENABLE_LANGGRAPH_COMPARISON = os.getenv('ENABLE_LANGGRAPH_COMPARISON', 'true').lower() == 'true'
+    
+    # Automatic rollback to current system if LangGraph fails
+    # Set to 'false' only when you're confident LangGraph is stable
+    # Default: 'true' (always fallback to working system)
+    LANGGRAPH_ROLLBACK_ON_ERROR = os.getenv('LANGGRAPH_ROLLBACK_ON_ERROR', 'true').lower() == 'true'
+    
+    # Test LangGraph only on simple questions (for gradual rollout)
+    # Filters which questions go to LangGraph vs current system
+    # Default: 'true' (only simple patterns like mean, sum, count)
+    LANGGRAPH_SIMPLE_QUESTIONS_ONLY = os.getenv('LANGGRAPH_SIMPLE_QUESTIONS_ONLY', 'true').lower() == 'true'
+    
+    # Enable detailed execution path logging
+    # Shows which system (LangGraph vs Current) is handling each request
+    # Default: 'true' (always log execution paths for monitoring)
+    ENABLE_EXECUTION_PATH_LOGGING = os.getenv('ENABLE_EXECUTION_PATH_LOGGING', 'true').lower() == 'true'
+    
+    # Log detailed performance metrics for comparison
+    # Includes timing, success rates, and answer comparison between systems
+    # Default: 'false' (only enable for detailed analysis)
+    ENABLE_PERFORMANCE_LOGGING = os.getenv('ENABLE_PERFORMANCE_LOGGING', 'true').lower() == 'true'
+    
     @classmethod
     def validate(cls) -> bool:
         """

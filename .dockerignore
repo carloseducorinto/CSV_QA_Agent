@@ -1,0 +1,30 @@
+# Ignorar o ambiente virtual
+venv/
+*.venv
+
+# Ignorar caches do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignorar diretórios do Git
+.git/
+.gitignore
+
+# Ignorar arquivos de configuração de IDEs
+.vscode/
+.idea/
+
+# Ignorar logs
+logs/
+*.log
+
+
+# Docker
+Dockerfile
+docker-compose.yml
+
+# Arquivos de sistema
+*.swp
+*~ 

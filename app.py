@@ -29,6 +29,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import time
+import logging
 
 # Add the project root to the Python path to import our agents
 # This ensures our custom agents can be imported regardless of working directory
@@ -40,6 +41,28 @@ from agents.csv_loader import CSVLoaderAgent
 from agents.question_understanding import QuestionUnderstandingAgent
 from agents.query_executor import QueryExecutorAgent
 from agents.answer_formatter import AnswerFormatterAgent
+
+# Import configuration for feature flags
+from config import Config
+
+# Configure logging for this module
+logger = logging.getLogger(__name__)
+
+logging.basicConfig(
+    level=logging.DEBUG,  # 👈 Necessário para permitir mensagens DEBUG
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# LangGraph integration (optional - only if enabled)
+try:
+    if Config.ENABLE_LANGGRAPH:
+        from agents.langgraph_workflow import answer_question_langgraph
+        LANGGRAPH_INTEGRATION_AVAILABLE = True
+    else:
+        LANGGRAPH_INTEGRATION_AVAILABLE = False
+except ImportError:
+    LANGGRAPH_INTEGRATION_AVAILABLE = False
+    logger.info("LangGraph integration not available (install with: pip install langgraph)")
 
 def analyze_uploaded_files(uploaded_files):
     """
@@ -371,9 +394,183 @@ def display_file_analysis(filename, result):
             else:
                 st.info("Upload multiple files to detect relationships between datasets.")
 
-def answer_question(question: str, analysis_results: dict) -> dict:
+def is_simple_question(question: str) -> bool:
     """
-    Complete question-answering pipeline using all enhanced agents.
+    Determine if a question is simple enough for LangGraph testing.
+    
+    During the experimental phase, we only route simple questions to LangGraph
+    to minimize risk while validating the new approach.
+    
+    Args:
+        question (str): User's question
+        
+    Returns:
+        bool: True if question contains simple operation patterns
+    """
+    simple_patterns = [
+        'média', 'mean', 'average',
+        'soma', 'sum', 'total', 
+        'contar', 'count', 'quantos',
+        'máximo', 'max', 'maior',
+        'mínimo', 'min', 'menor'
+    ]
+    
+    question_lower = question.lower()
+    return any(pattern in question_lower for pattern in simple_patterns)
+
+def answer_question_with_langgraph_option(question: str, analysis_results: dict) -> dict:
+    """
+    Enhanced answer_question that can optionally use LangGraph.
+    
+    This function wraps the existing answer_question functionality with optional
+    LangGraph integration. It ensures 100% backward compatibility while allowing
+    safe testing of the new LangGraph approach.
+    
+    Args:
+        question (str): User's natural language question
+        analysis_results (dict): Results from file analysis
+        
+    Returns:
+        dict: Response in exact same format as current system
+        
+    Safety Features:
+    - Always falls back to current system if LangGraph fails
+    - Only uses LangGraph if explicitly enabled via configuration
+    - Can filter questions to only test LangGraph on simple cases
+    - Optional A/B testing to compare both approaches
+    """
+    import time
+    start_time = time.time()
+    
+    # Determine if we should try LangGraph for this question
+    should_try_langgraph = (
+        Config.ENABLE_LANGGRAPH and 
+        LANGGRAPH_INTEGRATION_AVAILABLE and
+        (not Config.LANGGRAPH_SIMPLE_QUESTIONS_ONLY or is_simple_question(question))
+    )
+    
+    # LOG: Decision point
+    logger.info("=" * 60)
+    logger.info(f"🔍 PROCESSING QUESTION: '{question[:50]}{'...' if len(question) > 50 else ''}'")
+    logger.info(f"📊 Available DataFrames: {list(analysis_results.keys())}")
+    logger.info(f"⚙️  Configuration:")
+    logger.info(f"   - ENABLE_LANGGRAPH: {Config.ENABLE_LANGGRAPH}")
+    logger.info(f"   - LANGGRAPH_AVAILABLE: {LANGGRAPH_INTEGRATION_AVAILABLE}")
+    logger.info(f"   - SIMPLE_QUESTIONS_ONLY: {Config.LANGGRAPH_SIMPLE_QUESTIONS_ONLY}")
+    logger.info(f"   - Is Simple Question: {is_simple_question(question) if Config.LANGGRAPH_SIMPLE_QUESTIONS_ONLY else 'N/A'}")
+    logger.info(f"🎯 EXECUTION PATH: {'LangGraph' if should_try_langgraph else 'Current System'}")
+    logger.info("=" * 60)
+    
+    # Try LangGraph if enabled and appropriate
+    if should_try_langgraph:
+        try:
+            logger.info("🚀 STARTING LANGGRAPH EXECUTION")
+            logger.info(f"   Question: {question}")
+            logger.info(f"   DataFrames: {len(analysis_results)} file(s)")
+            
+            langgraph_start = time.time()
+            langgraph_result = answer_question_langgraph(question, analysis_results)
+            langgraph_time = time.time() - langgraph_start
+            
+            logger.info(f"⏱️  LangGraph execution time: {langgraph_time:.3f}s")
+            logger.info(f"✅ LangGraph result: Success={langgraph_result.get('success')}")
+            
+            # Optionally run comparison with current system
+            if Config.ENABLE_LANGGRAPH_COMPARISON:
+                try:
+                    logger.info("🔄 RUNNING COMPARISON WITH CURRENT SYSTEM")
+                    comparison_start = time.time()
+                    current_result = answer_question_current(question, analysis_results)
+                    comparison_time = time.time() - comparison_start
+                    
+                    _log_comparison_results(question, current_result, langgraph_result, comparison_time, langgraph_time)
+                except Exception as e:
+                    logger.warning(f"❌ Comparison with current system failed: {e}")
+            
+            # Return LangGraph result if successful
+            if langgraph_result.get('success'):
+                total_time = time.time() - start_time
+                logger.info(f"🎉 LANGGRAPH EXECUTION COMPLETED SUCCESSFULLY")
+                logger.info(f"   Total time: {total_time:.3f}s")
+                logger.info(f"   Answer: {langgraph_result.get('answer', '')[:100]}{'...' if len(langgraph_result.get('answer', '')) > 100 else ''}")
+                logger.info("=" * 60)
+                return langgraph_result
+            elif Config.LANGGRAPH_ROLLBACK_ON_ERROR:
+                logger.warning(f"⚠️  LangGraph failed, rolling back to current system")
+                logger.warning(f"   Error: {langgraph_result.get('error', 'Unknown error')}")
+            else:
+                logger.error(f"❌ LangGraph failed and rollback disabled")
+                logger.error(f"   Error: {langgraph_result.get('error', 'Unknown error')}")
+                total_time = time.time() - start_time
+                logger.info(f"   Total time: {total_time:.3f}s")
+                logger.info("=" * 60)
+                return langgraph_result
+                
+        except Exception as e:
+            logger.error(f"❌ LANGGRAPH EXECUTION EXCEPTION: {str(e)}")
+            if not Config.LANGGRAPH_ROLLBACK_ON_ERROR:
+                total_time = time.time() - start_time
+                logger.info(f"   Total time: {total_time:.3f}s")
+                logger.info("=" * 60)
+                return {
+                    'success': False,
+                    'error': f'LangGraph processing failed: {str(e)}',
+                    'answer': f'Erro no processamento LangGraph: {str(e)}'
+                }
+            logger.warning(f"   Rolling back to current system...")
+    
+    # Use current system (default behavior or fallback)
+    logger.info("🔧 STARTING CURRENT SYSTEM EXECUTION")
+    logger.info(f"   Reason: {'Fallback from LangGraph' if should_try_langgraph else 'Default execution path'}")
+    logger.info(f"   Question: {question}")
+    
+    current_start = time.time()
+    result = answer_question_current(question, analysis_results)
+    current_time = time.time() - current_start
+    total_time = time.time() - start_time
+    
+    logger.info(f"⏱️  Current system execution time: {current_time:.3f}s")
+    logger.info(f"✅ Current system result: Success={result.get('success')}")
+    logger.info(f"🎉 CURRENT SYSTEM EXECUTION COMPLETED")
+    logger.info(f"   Total time: {total_time:.3f}s")
+    logger.info(f"   Answer: {result.get('answer', '')[:100]}{'...' if len(result.get('answer', '')) > 100 else ''}")
+    logger.info("=" * 60)
+    
+    return result
+
+def _log_comparison_results(question: str, current_result: dict, langgraph_result: dict, current_time: float, langgraph_time: float):
+    """Enhanced comparison logging with detailed metrics"""
+    logger.info("🔍 COMPARISON ANALYSIS")
+    logger.info(f"   Question: {question[:50]}{'...' if len(question) > 50 else ''}")
+    logger.info(f"   📈 Performance:")
+    logger.info(f"     - Current System: {current_time:.3f}s")
+    logger.info(f"     - LangGraph: {langgraph_time:.3f}s")
+    logger.info(f"     - Speed Difference: {((langgraph_time - current_time) / current_time * 100):+.1f}%")
+    logger.info(f"   ✅ Success Rates:")
+    logger.info(f"     - Current System: {current_result.get('success')}")
+    logger.info(f"     - LangGraph: {langgraph_result.get('success')}")
+    logger.info(f"   📝 Answers:")
+    logger.info(f"     - Current: {current_result.get('answer', '')[:50]}{'...' if len(current_result.get('answer', '')) > 50 else ''}")
+    logger.info(f"     - LangGraph: {langgraph_result.get('answer', '')[:50]}{'...' if len(langgraph_result.get('answer', '')) > 50 else ''}")
+    logger.info(f"     - Answers Match: {current_result.get('answer') == langgraph_result.get('answer')}")
+    
+    # Log any differences in detail
+    if current_result.get('success') != langgraph_result.get('success'):
+        logger.warning(f"   ⚠️  SUCCESS MISMATCH detected!")
+    
+    if current_result.get('answer') != langgraph_result.get('answer'):
+        logger.warning(f"   ⚠️  ANSWER MISMATCH detected!")
+        logger.warning(f"     Current answer: {current_result.get('answer', 'None')}")
+        logger.warning(f"     LangGraph answer: {langgraph_result.get('answer', 'None')}")
+    
+    logger.info("🔍 END COMPARISON ANALYSIS")
+
+def answer_question_current(question: str, analysis_results: dict) -> dict:
+    """
+    Complete question-answering pipeline using all enhanced agents (CURRENT SYSTEM).
+    
+    This is the original, working implementation that has been renamed to allow
+    side-by-side testing with LangGraph. The logic is exactly the same as before.
     
     This function orchestrates the entire Q&A process:
     1. Initialize all required agents (understanding, execution, formatting)
@@ -390,11 +587,17 @@ def answer_question(question: str, analysis_results: dict) -> dict:
     Returns:
         dict: Complete response including success status, answer, and debugging info
     """
+    logger.info("🔧 CURRENT SYSTEM: Starting execution pipeline")
+    logger.debug(f"   Question: {question}")
+    logger.debug(f"   Available files: {list(analysis_results.keys())}")
+    
     try:
         # Initialize all agents for the Q&A pipeline
+        logger.info("   🏗️  Initializing agents...")
         question_agent = QuestionUnderstandingAgent()  # Interprets natural language
         executor_agent = QueryExecutorAgent()          # Executes pandas code safely
         formatter_agent = AnswerFormatterAgent()       # Formats responses with visualizations
+        logger.info("   ✅ Agents initialized successfully")
         
         # Extract DataFrames from analysis results for processing
         # Only include successfully analyzed files with valid DataFrames
@@ -403,8 +606,11 @@ def answer_question(question: str, analysis_results: dict) -> dict:
             if result.success and result.dataframe is not None:
                 dataframes[filename] = result.dataframe
         
+        logger.info(f"   📊 Extracted {len(dataframes)} valid DataFrames")
+        
         # Validate that we have data to work with
         if not dataframes:
+            logger.warning("   ❌ No valid DataFrames available for analysis")
             return {
                 'success': False,
                 'error': 'No valid DataFrames available for analysis.',
@@ -412,10 +618,17 @@ def answer_question(question: str, analysis_results: dict) -> dict:
             }
         
         # STEP 1: Understand the question using hybrid LLM+Regex approach
+        logger.info("   🧠 STEP 1: Understanding question...")
         understanding_result = question_agent.understand_question(question, dataframes)
+        
+        logger.info(f"   📋 Understanding completed:")
+        logger.info(f"     - Code source: {understanding_result.get('code_source', 'unknown')}")
+        logger.info(f"     - Confidence: {understanding_result.get('confidence', 0):.2f}")
+        logger.info(f"     - Generated code: {'Yes' if understanding_result.get('generated_code') else 'No'}")
         
         # Check if question understanding failed
         if understanding_result.get('error'):
+            logger.warning(f"   ❌ Understanding failed: {understanding_result['error']}")
             return {
                 'success': False,
                 'error': understanding_result['error'],
@@ -423,13 +636,25 @@ def answer_question(question: str, analysis_results: dict) -> dict:
             }
         
         # STEP 2: Execute the generated pandas code safely
+        logger.info("   ⚙️  STEP 2: Executing generated code...")
         if understanding_result.get('generated_code'):
+            logger.debug(f"     Code preview: {understanding_result['generated_code'][:100]}...")
+            
             execution_result = executor_agent.execute_code(
                 understanding_result['generated_code'], 
                 dataframes
             )
+            
+            logger.info(f"   📋 Execution completed:")
+            logger.info(f"     - Success: {execution_result.get('success')}")
+            logger.info(f"     - Execution time: {execution_result.get('execution_time', 0):.3f}s")
+            logger.info(f"     - Fallback used: {execution_result.get('fallback_executed', False)}")
+            
+            if execution_result.get('error'):
+                logger.warning(f"     - Error: {execution_result['error']}")
         else:
             # No code was generated - likely question too ambiguous
+            logger.warning("   ❌ No code was generated for execution")
             return {
                 'success': False,
                 'error': 'No code generated',
@@ -437,31 +662,62 @@ def answer_question(question: str, analysis_results: dict) -> dict:
             }
         
         # STEP 3: Format the response with visualizations and insights
+        logger.info("   📝 STEP 3: Formatting response...")
         formatted_response = formatter_agent.format_response(
             execution_result, 
             question, 
             understanding_result
         )
         
+        logger.info(f"   📋 Formatting completed:")
+        logger.info(f"     - Natural language answer generated: {'Yes' if formatted_response.get('natural_language_answer') else 'No'}")
+        logger.info(f"     - Visualizations: {len(formatted_response.get('visualizations', []))}")
+        logger.info(f"     - Data insights: {len(formatted_response.get('data_insights', []))}")
+        
+        final_answer = formatted_response.get('natural_language_answer', 'Resposta não disponível.')
+        logger.info(f"   💬 Final answer: {final_answer[:100]}{'...' if len(final_answer) > 100 else ''}")
+        
         # Return comprehensive successful result
+        logger.info("   ✅ Current system execution successful")
         return {
             'success': True,
             'understanding': understanding_result,     # Question interpretation details
             'execution': execution_result,             # Code execution results
             'formatted_response': formatted_response,  # Final formatted answer
-            'answer': formatted_response.get('natural_language_answer', 'Resposta não disponível.')
+            'answer': final_answer
         }
         
     except Exception as e:
         # Handle any unexpected errors with full debugging information
+        logger.error(f"   ❌ Current system exception: {str(e)}")
+        logger.error(f"     Exception type: {type(e).__name__}")
+        
         import traceback
         error_details = traceback.format_exc()
+        logger.debug(f"     Traceback: {error_details}")
+        
         return {
             'success': False,
             'error': str(e),
             'error_details': error_details,
             'answer': f'Erro interno: {str(e)}'
         }
+
+def answer_question(question: str, analysis_results: dict) -> dict:
+    """
+    Main answer_question function with optional LangGraph integration.
+    
+    This function maintains backward compatibility while allowing optional
+    LangGraph testing. By default, it uses the current working system.
+    
+    Args:
+        question (str): Natural language question from user
+        analysis_results (dict): Results from file analysis containing DataFrames
+        
+    Returns:
+        dict: Complete response including success status, answer, and debugging info
+    """
+    return answer_question_with_langgraph_option(question, analysis_results)
 
 # Configure Streamlit page settings for optimal user experience
 st.set_page_config(
@@ -711,7 +967,7 @@ if st.session_state.chat_history:
         with st.expander(f"{success_icon} Pergunta {len(st.session_state.chat_history)-i}: {chat['question'][:50]}..."):
             st.markdown(f"**Pergunta:** {chat['question']}")
             st.markdown(f"**Resposta:** {chat['answer']}")
-            
+
             # Show additional technical details for successful queries
             if chat.get('details') and chat['details'].get('success'):
                 col1, col2 = st.columns(2)
@@ -754,3 +1010,10 @@ if st.checkbox("🔧 Modo Desenvolvedor"):
             "chat_history_count": len(st.session_state.chat_history)
         }
     })
+
+# Add temporary debug section for column identification issues
+try:
+    import debug_actual_csv
+    debug_actual_csv.add_debug_section()
+except ImportError:
+    pass

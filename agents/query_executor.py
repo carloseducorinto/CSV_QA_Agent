@@ -113,7 +113,7 @@ class QueryExecutorAgent:
             self._fallback_basic_exploration,      # Show data preview
             self._fallback_simplified_operation    # Basic statistics
         ]
-
+    
     def _setup_safe_globals(self) -> dict:
         """
         Set up safe global environment for secure code execution.
@@ -261,7 +261,7 @@ class QueryExecutorAgent:
                 execution_result.update(fallback_result)
                 execution_result['fallback_executed'] = True
                 logger.info(f"Fallback executed: {fallback_result.get('fallback_strategy')}")
-                
+            
         except Exception as e:
             # Handle all other unexpected errors
             error_info = {
@@ -283,7 +283,7 @@ class QueryExecutorAgent:
         # Log execution in history for audit and debugging
         self.execution_history.append(execution_result)
         return execution_result
-
+    
     def _make_safe_variable_name(self, filename: str) -> str:
         """
         Convert filename to a safe Python variable name.
@@ -316,7 +316,7 @@ class QueryExecutorAgent:
         
         # Provide fallback if name becomes empty or invalid
         return safe_name or 'df'
-
+    
     def _find_last_result(self, local_vars: dict) -> Any:
         """
         Try to find the last meaningful result from code execution.
@@ -351,7 +351,7 @@ class QueryExecutorAgent:
         
         # No clear result found
         return None
-
+    
     def _try_fallback_strategies(self, original_code: str, dataframes: Dict[str, pd.DataFrame], error_info: dict) -> dict:
         """
         Try different fallback strategies when code execution fails.
@@ -383,13 +383,13 @@ class QueryExecutorAgent:
         
         # All fallback strategies failed - return original error
         return {
-            'success': False, 
-            'result': None, 
-            'output': '', 
-            'error': error_info, 
+            'success': False,
+            'result': None,
+            'output': '',
+            'error': error_info,
             'fallback_strategy': None
         }
-
+        
     def _fallback_basic_exploration(self, dataframes: Dict[str, pd.DataFrame]) -> dict:
         """
         Fallback strategy: Basic data exploration.
@@ -415,7 +415,7 @@ class QueryExecutorAgent:
             # Use the first available DataFrame for exploration
             df = list(dataframes.values())[0]
             return {
-                'success': True, 
+                'success': True,
                 'result': df.head(), 
                 'output': '', 
                 'error': None
@@ -423,12 +423,12 @@ class QueryExecutorAgent:
         except Exception as e:
             logger.error(f"Fallback basic exploration failed: {str(e)}")
             return {
-                'success': False, 
-                'result': None, 
+                'success': False,
+                'result': None,
                 'output': '', 
                 'error': str(e)
             }
-
+    
     def _fallback_simplified_operation(self, dataframes: Dict[str, pd.DataFrame]) -> dict:
         """
         Fallback strategy: Simplified statistical operation.
@@ -454,7 +454,7 @@ class QueryExecutorAgent:
             # Use the first available DataFrame for basic statistics
             df = list(dataframes.values())[0]
             return {
-                'success': True, 
+                'success': True,
                 'result': df.describe(), 
                 'output': '', 
                 'error': None
@@ -462,12 +462,12 @@ class QueryExecutorAgent:
         except Exception as e:
             logger.error(f"Fallback simplified operation failed: {str(e)}")
             return {
-                'success': False, 
-                'result': None, 
+                'success': False,
+                'result': None,
                 'output': '', 
                 'error': str(e)
             }
-
+    
     def validate_code_safety(self, code: str) -> dict:
         """
         Comprehensive security validation to check for potentially dangerous code patterns.
@@ -543,7 +543,7 @@ class QueryExecutorAgent:
         
         # Code passed all security checks
         return {'safe': True, 'reason': ''}
-
+    
     def get_execution_history(self) -> List[dict]:
         """
         Return the complete history of all code executions for audit and debugging.
@@ -562,7 +562,7 @@ class QueryExecutorAgent:
         - Output capture and warning information
         """
         return self.execution_history
-
+    
     def clear_history(self):
         """
         Clear the execution history for privacy or memory management.
